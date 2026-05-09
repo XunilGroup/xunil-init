@@ -3,6 +3,11 @@ name = "init"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "init"
+test = false
+bench = false
+
 [dependencies]
 xunil = { package = "libxunil", path = "../libxunil" }
 

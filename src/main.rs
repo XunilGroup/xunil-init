@@ -2,67 +2,128 @@
 #![no_main]
 
 use xunil::{
+    file::{SEEK_END, SEEK_SET, fopen, fread, fseek, ftell},
     keyboard::{KeyboardEvent, RETURN, kbd_read},
-    mem::{malloc, memset},
-    putchar,
+    print, putchar,
     time::sleep_ms,
 };
 
-fn run_command(command: *mut u32, n: usize) {}
+extern crate alloc;
+
+use alloc::{ffi::CString, string::String, vec::Vec};
+
+use alloc::vec;
+
+fn run_command(input: &String) -> i32 {
+    let argument_vec: Vec<&str> = input.split_ascii_whitespace().collect();
+    if let Some((command, args)) = argument_vec.split_first() {
+        print("\n");
+        if command == &"echo" {
+            print(args[0]);
+        }
+        if command == &"read" {
+            if args.is_empty() {
+                print("usage: read <file>\n");
+                return -1;
+            }
+
+            let file = fopen(
+                CString::new(args[0]).unwrap_or_default().as_ptr() as *const i8,
+                b"r\0".as_ptr() as *const i8,
+            );
+
+            if file.is_null() {
+                print("fopen failed\n");
+                return -1;
+            }
+
+            fseek(file, 0, SEEK_END);
+            let size = ftell(file);
+            if size < 0 {
+                print("ftell failed\n");
+                return -1;
+            }
+            fseek(file, 0, SEEK_SET);
+
+            let size = size as usize;
+            let mut buf = vec![0u8; size];
+
+            let items = fread(buf.as_mut_ptr(), size, 1, file);
+            if items == 0 {
+                print("fread failed/empty\n");
+                return -1;
+            }
+
+            let text = core::str::from_utf8(&buf[..size]).unwrap_or("<non-utf8>");
+            print(text);
+        } else {
+            print("\n");
+            print(input);
+            print(": ");
+            print("Command not found");
+            return -1;
+        }
+
+        return 0;
+    } else {
+        print("\n");
+        print(input);
+        print(": ");
+        print("Syntax Error");
+        return -1;
+    }
+}
 
 #[unsafe(no_mangle)]
 extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
-    let kbd_events_buf: *mut KeyboardEvent =
-        malloc(16 * size_of::<KeyboardEvent>() as u64) as *mut KeyboardEvent;
-    let command = malloc(256 * size_of::<u32>() as u64) as *mut u32;
-    unsafe {
+    let mut kbd_events: [KeyboardEvent; 16] = [KeyboardEvent::default(); 16];
+    let mut command = String::new();
+    print("Starting XunilOS...\n");
+    loop {
+        print("> ");
+
         loop {
-            xunil::printf(b"\n> \0".as_ptr());
+            if kbd_events.len() != 16 {
+                // make sure we dont cause memory overwrite errors because the buffer isnt 16 KeyboardEvents long
+                kbd_events = [KeyboardEvent::default(); 16];
+            }
 
-            loop {
-                let n = kbd_read(kbd_events_buf, 16);
+            let n = unsafe { kbd_read(kbd_events.as_mut_ptr(), 16) };
 
-                if n <= 0 {
-                    sleep_ms(5);
-                    continue;
+            if n <= 0 {
+                unsafe { sleep_ms(5) };
+                continue;
+            }
+
+            let mut should_return = false;
+
+            for i in 0..(n as usize) {
+                let event = kbd_events[i];
+
+                if event.key == RETURN && event.state == 1 {
+                    run_command(&command);
+                    should_return = true;
+                    break;
                 }
 
-                let mut should_return = false;
-                let mut command_n: usize = 0;
+                if event.unicode != 0 {
+                    command.push(event.unicode as u8 as char);
+                    putchar(event.unicode as i32);
 
-                for i in 0..(n as usize) {
-                    let event = kbd_events_buf.add(i);
-
-                    if (*event).key == RETURN && (*event).state == 1 {
-                        run_command(command, command_n);
+                    if command.len() >= 256 {
+                        run_command(&command);
                         should_return = true;
                         break;
                     }
-
-                    if (*event).unicode != 0 {
-                        *command.add(command_n) = (*event).unicode;
-                        putchar((*event).unicode as i32);
-                        command_n += 1;
-
-                        if command_n >= 256 {
-                            run_command(command, command_n);
-                            should_return = true;
-                            break;
-                        }
-                    }
                 }
+            }
 
-                sleep_ms(5);
+            unsafe { sleep_ms(5) };
 
-                if should_return {
-                    memset(
-                        kbd_events_buf as *mut u8,
-                        0,
-                        16 * size_of::<KeyboardEvent>(),
-                    );
-                    memset(command as *mut u8, 0, 256 * size_of::<u32>());
-                    break;
-                }
+            if should_return {
+                command.clear();
+                print("\n");
+                break;
             }
         }
     }
