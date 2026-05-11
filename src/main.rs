@@ -2,15 +2,20 @@
 #![no_main]
 
 use xunil::{
-    file::{SEEK_END, SEEK_SET, fopen, fread, fseek, ftell},
+    file::{SEEK_END, SEEK_SET, fclose, fopen, fread, fseek, ftell},
     keyboard::{KeyboardEvent, RETURN, kbd_read},
     print, putchar,
+    syscall::{EXECVE, syscall1},
     time::sleep_ms,
 };
 
 extern crate alloc;
 
-use alloc::{ffi::CString, string::String, vec::Vec};
+use alloc::{
+    ffi::CString,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use alloc::vec;
 
@@ -20,8 +25,7 @@ fn run_command(input: &String) -> i32 {
         print("\n");
         if command == &"echo" {
             print(args[0]);
-        }
-        if command == &"read" {
+        } else if command == &"read" {
             if args.is_empty() {
                 print("usage: read <file>\n");
                 return -1;
@@ -56,8 +60,18 @@ fn run_command(input: &String) -> i32 {
 
             let text = core::str::from_utf8(&buf[..size]).unwrap_or("<non-utf8>");
             print(text);
+
+            fclose(file);
+        } else if command == &"run" {
+            unsafe {
+                let _ = syscall1(
+                    EXECVE,
+                    CString::new(args[0]).unwrap_or_default().as_ptr() as *const u8 as isize,
+                )
+                .to_string()
+                .as_str();
+            };
         } else {
-            print("\n");
             print(input);
             print(": ");
             print("Command not found");
