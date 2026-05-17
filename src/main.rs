@@ -3,7 +3,7 @@
 
 use xunil::{
     file::{SEEK_END, SEEK_SET, fclose, fopen, fread, fseek, ftell},
-    keyboard::{KeyboardEvent, RETURN, kbd_read},
+    keyboard::{KEY_ENTER, KeyboardEvent, kbd_read},
     print, putchar,
     syscall::{EXECVE, syscall1},
     time::sleep_ms,
@@ -114,7 +114,7 @@ extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
             for i in 0..(n as usize) {
                 let event = kbd_events[i];
 
-                if event.key == RETURN && event.state == 1 {
+                if event.key == KEY_ENTER as u16 && event.state == 1 {
                     run_command(&command);
                     should_return = true;
                     break;
