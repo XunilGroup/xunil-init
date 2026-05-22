@@ -114,7 +114,11 @@ extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
             for i in 0..(n as usize) {
                 let event = kbd_events[i];
 
-                if event.key == KEY_ENTER as u16 && event.state == 1 {
+                if event.state != 0 {
+                    continue;
+                }
+
+                if event.key == KEY_ENTER as u16 {
                     run_command(&command);
                     should_return = true;
                     break;
