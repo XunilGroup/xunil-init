@@ -9,6 +9,7 @@ test = false
 bench = false
 
 [dependencies]
+spin = "0.12.0"
 xunil = { package = "libxunil", path = "../libxunil" }
 
 [profile.release]
