@@ -29,5 +29,19 @@ extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
         );
     };
 
+    unsafe {
+        let _ = syscall1(
+            EXECVE,
+            CString::new("doomgeneric").unwrap_or_default().as_ptr() as *const u8 as isize,
+        );
+    };
+
+    unsafe {
+        let _ = syscall1(
+            EXECVE,
+            CString::new("shell").unwrap_or_default().as_ptr() as *const u8 as isize,
+        );
+    };
+
     main_loop();
 }

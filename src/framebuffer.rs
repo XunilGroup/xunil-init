@@ -48,6 +48,31 @@ impl UserFrameBuffer {
             }
         }
     }
+
+    #[inline(always)]
+    pub fn put_pixel(&mut self, x: usize, y: usize, color: u32) {
+        if x >= self.width || y >= self.height {
+            return;
+        }
+        let idx = y * self.width + x;
+        if idx >= self.width * self.height {
+            return;
+        }
+        unsafe { self.buf_virt.add(idx).write(color) };
+    }
+
+    #[inline(always)]
+    pub fn fill_span(&mut self, x: usize, y: usize, len: usize, color: u32) {
+        if y >= self.height || x >= self.width || len == 0 {
+            return;
+        }
+        let len = core::cmp::min(len, self.width - x);
+        let start = y * self.width + x;
+        unsafe {
+            let slice = core::slice::from_raw_parts_mut(self.buf_virt.add(start), len);
+            slice.fill(color);
+        }
+    }
 }
 
 pub fn get_framebuffer_size() -> (usize, usize) {
@@ -71,4 +96,11 @@ pub unsafe extern "C" fn draw_buffer(buffer: *const u32, width: u32, height: u32
     unsafe { (*fb_ptr).load_from_ptr(buffer, width as usize, height as usize) };
 
     0
+}
+
+pub fn rectangle_filled(x: usize, y: usize, width: usize, height: usize, color: u32) {
+    let fb_ptr = USER_FB_BASE as *mut UserFrameBuffer;
+    for yy in y..y + height {
+        unsafe { (*fb_ptr).fill_span(x, yy, width, color) };
+    }
 }
