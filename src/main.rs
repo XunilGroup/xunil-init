@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![feature(unboxed_closures)]
 
 use xunil::{
     print,
@@ -9,9 +10,8 @@ use xunil::{
 extern crate alloc;
 
 pub mod framebuffer;
+pub mod input;
 pub mod windowing;
-
-use alloc::ffi::CString;
 
 use crate::{framebuffer::map_framebuffer, windowing::main_loop};
 
@@ -21,27 +21,6 @@ extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
 
     print("Mapping Framebuffer...\n");
     unsafe { map_framebuffer() };
-
-    unsafe {
-        let _ = syscall1(
-            EXECVE,
-            CString::new("badapple").unwrap_or_default().as_ptr() as *const u8 as isize,
-        );
-    };
-
-    unsafe {
-        let _ = syscall1(
-            EXECVE,
-            CString::new("doomgeneric").unwrap_or_default().as_ptr() as *const u8 as isize,
-        );
-    };
-
-    unsafe {
-        let _ = syscall1(
-            EXECVE,
-            CString::new("shell").unwrap_or_default().as_ptr() as *const u8 as isize,
-        );
-    };
 
     main_loop();
 }
