@@ -1,7 +1,5 @@
 use crate::{
-    framebuffer::{
-        USER_FB_BASE, UserFrameBuffer, draw_window, get_framebuffer_size, rectangle_filled,
-    },
+    framebuffer::{USER_FB_BASE, bmp_draw, draw_window, get_framebuffer_size, rectangle_filled},
     input::{MOUSE, input_read},
 };
 use alloc::{
@@ -60,37 +58,12 @@ pub struct CompositorMouse {
 
 unsafe impl Send for CompositorWindow {}
 
-static CURSOR_BYTES: &[u8] = include_bytes!("../../../assets/cursors/default.bmp");
-const BMP_HEADER_SIZE: usize = 138;
-const CURSOR_W: usize = 24;
-const CURSOR_H: usize = 24;
+static WALLPAPER_BYTES: &[u8] = include_bytes!("../../../assets/images/wallpaper.bmp");
+static CURSOR_BYTES: &[u8] = include_bytes!("../../../assets/images/cursor.bmp");
+static LOGO_BYTES: &[u8] = include_bytes!("../../../assets/images/logo.bmp");
 
 fn point_in_rect(x: usize, y: usize, x2: usize, y2: usize, width: usize, height: usize) -> bool {
     x >= x2 && x <= x2 + width && y >= y2 && y <= y2 + height
-}
-
-pub fn mouse_draw(mouse_x: usize, mouse_y: usize, fb: &mut UserFrameBuffer) {
-    let pixels = &CURSOR_BYTES[BMP_HEADER_SIZE..]; // remove header
-
-    for row in 0..CURSOR_H {
-        let src_row = (CURSOR_H - 1 - row) * CURSOR_W * 4;
-        for col in 0..CURSOR_W {
-            let i = src_row + col * 4; // 4 because rgba
-
-            let b = pixels[i];
-            let g = pixels[i + 1];
-            let r = pixels[i + 2];
-            let a = pixels[i + 3];
-
-            if a < 255 {
-                continue;
-            }
-
-            let color = rgb(r, g, b);
-
-            fb.put_pixel(mouse_x + col, mouse_y + row, color);
-        }
-    }
 }
 
 fn request_priv_ipc(sender: u64) -> String {
@@ -129,16 +102,22 @@ pub fn rand(seed: &mut u64) -> u64 {
     *seed
 }
 
-fn get_time_seed() -> u64 {
+fn get_time() -> (u64, u64) {
     let timeval = malloc(size_of::<Timeval>() as u64) as *mut Timeval;
     let timezone = malloc(size_of::<Timezone>() as u64) as *mut Timezone;
     unsafe { gettimeofday(timeval, timezone) };
-    let seed = (unsafe { (*timeval).tv_usec + (*timeval).tv_sec } as u64).clone();
+
+    let result = unsafe { ((*timeval).tv_usec as u64, (*timeval).tv_sec as u64) };
 
     free(timeval as *mut u8);
     free(timezone as *mut u8);
 
-    return seed;
+    result
+}
+
+fn get_time_seed() -> u64 {
+    let time = get_time();
+    time.0 + time.1
 }
 
 fn request_window_buf(
@@ -403,9 +382,9 @@ fn draw_windows_and_dock(
     };
 
     // dock bg
-    rectangle_filled(0, fb_height - 20, fb_width, 20, rgb(128, 128, 128));
+    rectangle_filled(0, fb_height - 20, fb_width, 20, rgb(53, 126, 199));
 
-    let mut dock_x: usize = 40 + 5;
+    let mut dock_x: usize = 80 + 5;
 
     let mut windows_to_destroy: Vec<u64> = Vec::new();
 
@@ -513,11 +492,32 @@ fn draw_windows_and_dock(
         dock_x += required_bar_width + 5;
     }
 
+    let (hours, minutes, seconds) = unix_to_hms(get_time().1);
+    let time_text = format!("{:02}:{:02}:{:02}", hours, minutes, seconds);
+
+    render_text(
+        &mut fake_window_buffer,
+        fb_width - (time_text.len() * 8) - 5,
+        fb_height - 10,
+        &time_text,
+        1,
+        rgb(255, 255, 255),
+        0,
+    );
+
     for pid in &windows_to_destroy {
         windows.remove(&pid);
     }
 
     drop(windows_to_destroy);
+}
+
+fn unix_to_hms(timestamp: u64) -> (u64, u64, u64) {
+    let seconds = timestamp % 86400;
+    let h = seconds / 3600;
+    let m = (seconds % 3600) / 60;
+    let s = seconds % 60;
+    (h, m, s)
 }
 
 fn draw_start_menu(
@@ -533,26 +533,51 @@ fn draw_start_menu(
     };
 
     const START_MENU_ITEMS: [&str; 3] = ["doomgeneric", "shell", "badapple"];
-    const START_MENU_WIDTH: usize = 100;
-    const START_MENU_ITEM_HEIGHT: usize = 20;
-    const START_MENU_SPACING: usize = 5;
+    const START_MENU_WIDTH: usize = 275;
+    const START_MENU_HEIGHT: usize = 325;
+    const START_MENU_ITEM_WIDTH: usize = 200;
+    const START_MENU_ITEM_HEIGHT: usize = 35;
+    const START_MENU_SPACING: usize = 0;
 
     // start menu bg
     rectangle_filled(
         0,
-        fb_height
-            - 20
-            - 5
-            - (START_MENU_ITEMS.len() * (START_MENU_ITEM_HEIGHT + START_MENU_SPACING)),
+        fb_height - 20 - 5 - START_MENU_HEIGHT,
         START_MENU_WIDTH,
-        START_MENU_ITEM_HEIGHT * START_MENU_ITEMS.len(),
-        rgb(128, 128, 128),
+        START_MENU_HEIGHT,
+        rgb(63, 131, 196),
     );
 
-    let mut start_menu_y = fb_height
-        - 20
-        - 5
-        - (START_MENU_ITEMS.len() * (START_MENU_ITEM_HEIGHT + START_MENU_SPACING));
+    // user
+    bmp_draw(
+        0,
+        fb_height - 20 - 5 - START_MENU_HEIGHT,
+        35,
+        35,
+        160,
+        160,
+        LOGO_BYTES,
+    );
+
+    render_text(
+        &mut fake_window_buffer,
+        35 + 7,
+        fb_height - 20 - 5 - START_MENU_HEIGHT + (35 / 2) - 4,
+        "xuT (evil twin)",
+        1,
+        rgb(255, 255, 255),
+        0,
+    );
+
+    let mut start_menu_y = fb_height - 20 - 5 - START_MENU_HEIGHT + (35 / 2) - 4 + (35 + 7) + 5;
+
+    rectangle_filled(
+        0,
+        start_menu_y,
+        START_MENU_WIDTH,
+        START_MENU_HEIGHT - (START_MENU_ITEM_HEIGHT + START_MENU_SPACING) * START_MENU_ITEMS.len(),
+        rgb(255, 255, 255),
+    );
 
     for item in START_MENU_ITEMS {
         add_button(
@@ -560,11 +585,11 @@ fn draw_start_menu(
             compositor_mouse,
             0,
             start_menu_y,
-            START_MENU_WIDTH,
+            START_MENU_ITEM_WIDTH,
             START_MENU_ITEM_HEIGHT,
-            rgb(128, 128, 128),
-            item,
             rgb(255, 255, 255),
+            item,
+            rgb(0, 0, 0),
             || {
                 *should_show_start = false;
 
@@ -588,11 +613,8 @@ fn draw_start_menu(
             compositor_mouse.x,
             compositor_mouse.y,
             0,
-            fb_height
-                - 20
-                - 5
-                - (START_MENU_ITEMS.len() * (START_MENU_ITEM_HEIGHT + START_MENU_SPACING)),
-            START_MENU_WIDTH,
+            fb_height - 20 - 5 - START_MENU_HEIGHT,
+            START_MENU_ITEM_WIDTH,
             START_MENU_ITEMS.len() * (START_MENU_ITEM_HEIGHT + START_MENU_SPACING),
         )
         && !point_in_rect(
@@ -630,7 +652,6 @@ pub fn main_loop() -> ! {
         fb_slice.fill(rgb(0, 0, 255));
     }
 
-    let fb_ptr = USER_FB_BASE as *mut UserFrameBuffer;
     let mut kbd_events: [KeyboardEvent; 16] = [KeyboardEvent::default(); 16];
 
     let mut should_show_start: bool = false;
@@ -640,7 +661,7 @@ pub fn main_loop() -> ! {
         process_messages(&mut private_ipcs, fb_width, fb_height);
         let kbd_events_n = input_read(kbd_events.as_mut_ptr(), 16);
         unsafe {
-            (*fb_ptr).load_from_ptr(empty_framebuffer, fb_width, fb_height);
+            bmp_draw(0, 0, fb_width, fb_height, 1280, 698, WALLPAPER_BYTES);
             sleep_ms(0); // yield
         }
 
@@ -654,6 +675,8 @@ pub fn main_loop() -> ! {
             draw_start_menu(fb_width, fb_height, &mut should_show_start, &mut mouse);
         }
         // dock start button
+        rectangle_filled(0, fb_height - 20, 30, 20, rgb(120, 174, 67));
+        bmp_draw(5, fb_height - 20, 18, 18, 160, 160, LOGO_BYTES);
         add_button(
             &mut WindowFrameBuffer {
                 ptr: (USER_FB_BASE + 0x1000) as *mut u32,
@@ -661,12 +684,12 @@ pub fn main_loop() -> ! {
                 height: fb_height,
             },
             &mut mouse,
-            0,
+            30,
             fb_height - 20,
-            40,
+            50,
             20,
-            rgb(0, 0, 0),
-            "START",
+            rgb(120, 174, 67),
+            "start",
             rgb(255, 255, 255),
             || {
                 should_show_start = !should_show_start;
@@ -674,7 +697,7 @@ pub fn main_loop() -> ! {
         );
 
         unsafe {
-            mouse_draw(mouse.x, mouse.y, &mut (*fb_ptr));
+            bmp_draw(mouse.x, mouse.y, 24, 24, 24, 24, CURSOR_BYTES);
             mouse.last_left_clicked_state = MOUSE.left_button_pressed;
             framebuffer_swap();
         };

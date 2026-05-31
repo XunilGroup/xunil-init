@@ -1,6 +1,10 @@
-use xunil::syscall::{MAP_FRAMEBUFFER, syscall0};
+use xunil::{
+    graphics::rgb,
+    syscall::{MAP_FRAMEBUFFER, syscall0},
+};
 
 pub const USER_FB_BASE: u64 = 0x0000_7F00_0000_0000;
+const BMP_HEADER_SIZE: usize = 138;
 
 #[repr(C)]
 pub struct UserFrameBuffer {
@@ -42,9 +46,9 @@ impl UserFrameBuffer {
             for dx in 0..self.width {
                 let sx = dx * src_width / self.width;
 
-                let src_pixel = unsafe { *src_ptr.add(sy * src_width + sx) };
+                let src_pixel = unsafe { *core::hint::black_box(src_ptr.add(sy * src_width + sx)) };
 
-                unsafe { *self.buf_virt.add(dy * self.pitch + dx) = src_pixel };
+                unsafe { core::hint::black_box(self.buf_virt.add(dy * self.pitch + dx)).write(src_pixel) };
             }
         }
     }
@@ -58,7 +62,7 @@ impl UserFrameBuffer {
         if idx >= self.width * self.height {
             return;
         }
-        unsafe { self.buf_virt.add(idx).write(color) };
+        unsafe { core::hint::black_box(self.buf_virt.add(idx)).write(color) };
     }
 
     #[inline(always)]
@@ -69,7 +73,10 @@ impl UserFrameBuffer {
         let len = core::cmp::min(len, self.width - x);
         let start = y * self.width + x;
         unsafe {
-            let slice = core::slice::from_raw_parts_mut(self.buf_virt.add(start), len);
+            let slice = core::slice::from_raw_parts_mut(
+                core::hint::black_box(self.buf_virt.add(start)),
+                len,
+            );
             slice.fill(color);
         }
     }
@@ -102,5 +109,46 @@ pub fn rectangle_filled(x: usize, y: usize, width: usize, height: usize, color: 
     let fb_ptr = USER_FB_BASE as *mut UserFrameBuffer;
     for yy in y..y + height {
         unsafe { (*fb_ptr).fill_span(x, yy, width, color) };
+    }
+}
+
+pub fn bmp_draw(
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    src_width: usize,
+    src_height: usize,
+    data: &[u8],
+) {
+    let fb_ptr = USER_FB_BASE as *mut UserFrameBuffer;
+
+    let pixels = &data[BMP_HEADER_SIZE..];
+
+    for dst_y in 0..height {
+        let src_y = dst_y * src_height / height;
+
+        for dst_x in 0..width {
+            let src_x = dst_x * src_width / width;
+
+            let bmp_y = src_height - 1 - src_y;
+
+            let i = (bmp_y * src_width + src_x) * 4;
+
+            let b = pixels[i];
+            let g = pixels[i + 1];
+            let r = pixels[i + 2];
+            let a = pixels[i + 3];
+
+            if a < 255 {
+                continue;
+            }
+
+            let color = rgb(r, g, b);
+
+            unsafe {
+                (*fb_ptr).put_pixel(x + dst_x, y + dst_y, color);
+            }
+        }
     }
 }

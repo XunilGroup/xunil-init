@@ -2,10 +2,7 @@
 #![no_main]
 #![feature(unboxed_closures)]
 
-use xunil::{
-    print,
-    syscall::{EXECVE, syscall1},
-};
+use xunil::print;
 
 extern crate alloc;
 
