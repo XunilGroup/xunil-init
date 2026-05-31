@@ -43,40 +43,43 @@ impl UserFrameBuffer {
         for dy in 0..self.height {
             let sy = dy * src_height / self.height;
 
-            for dx in 0..self.width {
-                let sx = dx * src_width / self.width;
+            for dx in 0..self.pitch {
+                let sx = dx * src_width / self.pitch;
 
                 let src_pixel = unsafe { *core::hint::black_box(src_ptr.add(sy * src_width + sx)) };
 
-                unsafe { core::hint::black_box(self.buf_virt.add(dy * self.pitch + dx)).write(src_pixel) };
+                unsafe {
+                    core::hint::black_box(self.buf_virt.add(dy * self.pitch + dx)).write(src_pixel)
+                };
             }
         }
     }
 
-    #[inline(always)]
+    #[inline(never)]
+    fn buf_virt_opaque(&self) -> *mut u32 {
+        core::hint::black_box(self.buf_virt)
+    }
+
+    #[inline(never)]
     pub fn put_pixel(&mut self, x: usize, y: usize, color: u32) {
         if x >= self.width || y >= self.height {
             return;
         }
-        let idx = y * self.width + x;
-        if idx >= self.width * self.height {
-            return;
-        }
-        unsafe { core::hint::black_box(self.buf_virt.add(idx)).write(color) };
+        unsafe {
+            let dst = core::hint::black_box(self.buf_virt_opaque().add(y * self.pitch + x));
+            core::ptr::copy_nonoverlapping(&color as *const u32, dst, 1);
+        };
     }
 
-    #[inline(always)]
+    #[inline(never)]
     pub fn fill_span(&mut self, x: usize, y: usize, len: usize, color: u32) {
         if y >= self.height || x >= self.width || len == 0 {
             return;
         }
         let len = core::cmp::min(len, self.width - x);
-        let start = y * self.width + x;
         unsafe {
-            let slice = core::slice::from_raw_parts_mut(
-                core::hint::black_box(self.buf_virt.add(start)),
-                len,
-            );
+            let dst = core::hint::black_box(self.buf_virt_opaque().add(y * self.pitch + x));
+            let slice = core::slice::from_raw_parts_mut(dst, len);
             slice.fill(color);
         }
     }

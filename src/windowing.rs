@@ -646,11 +646,6 @@ pub fn main_loop() -> ! {
         last_left_clicked_state: false,
     };
     let (fb_width, fb_height) = get_framebuffer_size();
-    let empty_framebuffer = malloc((fb_width * fb_height * size_of::<u32>()) as u64) as *mut u32;
-    unsafe {
-        let fb_slice = core::slice::from_raw_parts_mut(empty_framebuffer, fb_width * fb_height);
-        fb_slice.fill(rgb(0, 0, 255));
-    }
 
     let mut kbd_events: [KeyboardEvent; 16] = [KeyboardEvent::default(); 16];
 
