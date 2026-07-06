@@ -26,32 +26,21 @@ impl UserFrameBuffer {
         for dy in 0..height {
             let src_row = core::hint::black_box(unsafe { src_ptr.add(dy * width) });
             let dst_row =
-                core::hint::black_box(unsafe { self.buf_virt.add((dy + y) * self.pitch + x) });
+                core::hint::black_box(unsafe { self.buf_virt.add((dy + y) * self.width + x) });
             unsafe {
                 core::ptr::copy_nonoverlapping(src_row, dst_row, width);
             }
         }
     }
 
-    pub unsafe fn load_from_ptr(
-        &mut self,
-        src_ptr: *const u32,
-        src_width: usize,
-        src_height: usize,
-    ) {
+    pub unsafe fn load_from_ptr(&mut self, src_ptr: *const u32, src_width: usize) {
         let _buf = unsafe { core::ptr::read_volatile(&self.buf_virt) };
         for dy in 0..self.height {
-            let sy = dy * src_height / self.height;
-
-            for dx in 0..self.pitch {
-                let sx = dx * src_width / self.pitch;
-
-                let src_pixel = unsafe { *core::hint::black_box(src_ptr.add(sy * src_width + sx)) };
-
-                unsafe {
-                    core::hint::black_box(self.buf_virt.add(dy * self.pitch + dx)).write(src_pixel)
-                };
-            }
+            unsafe {
+                let src_row = src_ptr.add(dy * src_width);
+                let dst_row = self.buf_virt.add(dy * self.width);
+                core::ptr::copy_nonoverlapping(src_row, dst_row, src_width.min(self.width))
+            };
         }
     }
 
@@ -66,7 +55,7 @@ impl UserFrameBuffer {
             return;
         }
         unsafe {
-            let dst = core::hint::black_box(self.buf_virt_opaque().add(y * self.pitch + x));
+            let dst = core::hint::black_box(self.buf_virt_opaque().add(y * self.width + x));
             core::ptr::copy_nonoverlapping(&color as *const u32, dst, 1);
         };
     }
@@ -78,7 +67,7 @@ impl UserFrameBuffer {
         }
         let len = core::cmp::min(len, self.width - x);
         unsafe {
-            let dst = core::hint::black_box(self.buf_virt_opaque().add(y * self.pitch + x));
+            let dst = core::hint::black_box(self.buf_virt_opaque().add(y * self.width + x));
             let slice = core::slice::from_raw_parts_mut(dst, len);
             slice.fill(color);
         }
@@ -99,15 +88,6 @@ pub unsafe fn draw_window(buffer: *const u32, width: u32, height: u32, x: usize,
     let fb_ptr = USER_FB_BASE as *mut UserFrameBuffer;
     unsafe { (*fb_ptr).draw_window(buffer, width as usize, height as usize, x, y) };
 }
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn draw_buffer(buffer: *const u32, width: u32, height: u32) -> i32 {
-    let fb_ptr = USER_FB_BASE as *mut UserFrameBuffer;
-    unsafe { (*fb_ptr).load_from_ptr(buffer, width as usize, height as usize) };
-
-    0
-}
-
 pub fn rectangle_filled(x: usize, y: usize, width: usize, height: usize, color: u32) {
     let fb_ptr = USER_FB_BASE as *mut UserFrameBuffer;
     for yy in y..y + height {
@@ -151,6 +131,44 @@ pub fn bmp_draw(
 
             unsafe {
                 (*fb_ptr).put_pixel(x + dst_x, y + dst_y, color);
+            }
+        }
+    }
+}
+
+pub fn render_bmp_to_buf(
+    width: usize,
+    height: usize,
+    src_width: usize,
+    src_height: usize,
+    data: &[u8],
+    buf: *mut u32,
+) {
+    let pixels = &data[BMP_HEADER_SIZE..];
+
+    for dst_y in 0..height {
+        let src_y = dst_y * src_height / height;
+
+        for dst_x in 0..width {
+            let src_x = dst_x * src_width / width;
+
+            let bmp_y = src_height - 1 - src_y;
+
+            let i = (bmp_y * src_width + src_x) * 4;
+
+            let b = pixels[i];
+            let g = pixels[i + 1];
+            let r = pixels[i + 2];
+            let a = pixels[i + 3];
+
+            if a < 255 {
+                continue;
+            }
+
+            let color = rgb(r, g, b);
+            let index = dst_y * width + dst_x;
+            unsafe {
+                *buf.add(index) = color;
             }
         }
     }

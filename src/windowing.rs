@@ -1,5 +1,8 @@
 use crate::{
-    framebuffer::{USER_FB_BASE, bmp_draw, draw_window, get_framebuffer_size, rectangle_filled},
+    framebuffer::{
+        USER_FB_BASE, UserFrameBuffer, bmp_draw, draw_window, get_framebuffer_size,
+        rectangle_filled, render_bmp_to_buf,
+    },
     input::{MOUSE, input_read},
 };
 use alloc::{
@@ -265,7 +268,8 @@ fn update_window_drag(mouse: &mut CompositorMouse) {
         }
     }
 
-    for (pid, window) in windows.iter() {
+    // use reverse iter to make sure top window gets focused
+    for (pid, window) in windows.iter().rev() {
         if point_in_rect(
             mouse.x,
             mouse.y,
@@ -651,20 +655,29 @@ pub fn main_loop() -> ! {
 
     let mut should_show_start: bool = false;
 
+    let wallpaper_buf = malloc((fb_width * fb_height * size_of::<u32>()) as u64) as *mut u32;
+    render_bmp_to_buf(
+        fb_width,
+        fb_height,
+        1280,
+        698,
+        WALLPAPER_BYTES,
+        wallpaper_buf,
+    );
+
     loop {
-        unsafe { sleep_ms(1000 / 90) };
+        unsafe { sleep_ms(1000 / 60) };
         process_messages(&mut private_ipcs, fb_width, fb_height);
         let kbd_events_n = input_read(kbd_events.as_mut_ptr(), 16);
+
         unsafe {
-            bmp_draw(0, 0, fb_width, fb_height, 1280, 698, WALLPAPER_BYTES);
-            sleep_ms(0); // yield
+            (*(USER_FB_BASE as *mut UserFrameBuffer)).load_from_ptr(wallpaper_buf, fb_width);
         }
 
         draw_windows_and_dock(&mut mouse, fb_width, fb_height);
         update_window_drag(&mut mouse);
         update_mouse(fb_width, fb_height, &mut mouse);
         send_events(&kbd_events, kbd_events_n, &mut private_ipcs);
-        unsafe { sleep_ms(0) }; // yield
 
         if should_show_start {
             draw_start_menu(fb_width, fb_height, &mut should_show_start, &mut mouse);
